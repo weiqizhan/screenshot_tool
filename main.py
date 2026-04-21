@@ -1,10 +1,10 @@
-import sys
-import os
+import sys, os
 import keyboarded as keyboard
-from PyQt6.QtWidgets import QApplication,QSystemTrayIcon,QMenu
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, Qt
-from PyQt6.QtGui import QIcon, QPixmap,QColor,QPainter
+from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter
 from screenshot_tool import ScreenshotTool
+
 
 def resource_path(relative_path):
     """获取资源文件的绝对路径，兼容开发环境和 PyInstaller 打包后的环境"""
@@ -15,16 +15,20 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+
 # 信号发射器，用于跨线程安全地调用主线程
 class SignalEmitter(QObject):
     trigger_screenshot = pyqtSignal()
     trigger_quit = pyqtSignal()
 
+
 def do_quit():
     QApplication.quit()
 
+
 def quit_app():
     emitter.trigger_quit.emit()
+
 
 # 创建系统托盘图标
 def create_tray_icon(app):
@@ -50,42 +54,41 @@ def create_tray_icon(app):
         painter.end()
         tray_icon.setIcon(QIcon(pixmap))
     tray_icon.setToolTip("sst 截图工具")
-    
+
     # 创建右键菜单
     menu = QMenu()
-    
+
     action1 = menu.addAction("📷 截图 (Ctrl+1)")
     action1.triggered.connect(do_screenshot)
-    
+
     menu.addSeparator()
-    
+
     action2 = menu.addAction("❌ 退出 (Ctrl+2)")
     action2.triggered.connect(do_quit)
-    
+
     tray_icon.setContextMenu(menu)
     tray_icon.show()
 
     # 左键点击托盘图标也可触发截图（可选）
     tray_icon.activated.connect(lambda reason: do_screenshot() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
-    
+
     return tray_icon
+
 
 def start_screenshot():
     # 通过信号发射到主线程
     emitter.trigger_screenshot.emit()
+
 
 def do_screenshot():
     global tool
     tool = ScreenshotTool()
     tool.showFullScreen()
 
-def send_qt_notification(tray_icon): #使用指南弹窗通知
-    tray_icon.showMessage(
-        "⭐使用指南⭐",                       # 标题
-        "Ctrl+1 开始截图...\nCtrl+2 退出程序...", # 消息内容
-        QSystemTrayIcon.MessageIcon.Information, # 图标类型
-        2000                                   # 显示时间（毫秒）
-    )
+
+def send_qt_notification(tray_icon):  # 使用指南弹窗通知
+    tray_icon.showMessage("⭐使用指南⭐", "Ctrl+1 开始截图...\nCtrl+2 退出程序...", QSystemTrayIcon.MessageIcon.Information, 2000)  # 标题  # 消息内容  # 图标类型  # 显示时间（毫秒）
+
 
 def main():
     global app
@@ -104,10 +107,11 @@ def main():
     QTimer.singleShot(1000, lambda: send_qt_notification(tray))
 
     # 注册热键，suppress=True 阻止按键传递到其他应用（避免误触 Ctrl+S）
-    keyboard.add_hotkey('ctrl+1', start_screenshot, suppress=True)
-    keyboard.add_hotkey('ctrl+2', quit_app, suppress=True)
+    keyboard.add_hotkey("ctrl+1", start_screenshot, suppress=True)
+    keyboard.add_hotkey("ctrl+2", quit_app, suppress=True)
 
     sys.exit(app.exec())
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

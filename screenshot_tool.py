@@ -1,28 +1,25 @@
-from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QRect, QPoint,QTimer
-from PyQt6.QtGui import QPainter, QColor, QPen, QPixmap, QImage
+from PyQt6.QtWidgets import QWidget
+from PyQt6.QtCore import Qt, QRect, QPoint
+from PyQt6.QtGui import QPainter, QColor, QPen, QImage
 from PIL import ImageGrab
 from float_image import FloatImage
+
 
 class ScreenshotTool(QWidget):
     def __init__(self):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
-        )
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setMouseTracking(True)
         self.origin = QPoint()
         self.end = QPoint()
         self.drawing = False
+        self.full_pil_image = None
         self.screen_pixmap = None
 
     def showFullScreen(self):
         try:
-            pil_img = ImageGrab.grab()
-            self.screen_pixmap = self.pil2pixmap(pil_img)
+            self.full_pil_image = ImageGrab.grab()
         except Exception as e:
             print(f"[showFullScreen] PIL截图失败: {e}")
             self.screen_pixmap = None
@@ -30,50 +27,23 @@ class ScreenshotTool(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocus()
 
-    def pil2pixmap(self, pil_img):
-        if pil_img.mode == "RGB":
-            qimage = QImage(pil_img.tobytes("raw", "RGB"), pil_img.width, pil_img.height, QImage.Format.Format_RGB888)
-        elif pil_img.mode == "RGBA":
-            qimage = QImage(pil_img.tobytes("raw", "RGBA"), pil_img.width, pil_img.height, QImage.Format.Format_RGBA8888)
-        else:
-            pil_img = pil_img.convert("RGBA")
-            qimage = QImage(pil_img.tobytes("raw", "RGBA"), pil_img.width, pil_img.height, QImage.Format.Format_RGBA8888)
-        return QPixmap.fromImage(qimage)
-
     def paintEvent(self, event):
         painter = QPainter(self)
-
         # 背景图
-        if self.screen_pixmap and not self.screen_pixmap.isNull():
-            painter.drawPixmap(0, 0, self.screen_pixmap)
-        else:
-            painter.fillRect(self.rect(), QColor(200, 50, 50))
+        painter.drawImage(self.rect(), QImage(self.full_pil_image.tobytes("raw", "RGB"), self.full_pil_image.width, self.full_pil_image.height, QImage.Format.Format_RGB888))
 
-        # 半透明遮罩
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 120))
-
-        # 提示或选区
-        if self.origin.isNull() or self.end.isNull():
-            # 显示操作提示
-            hint_rect = QRect(self.width()//2 - 180, self.height()//2 - 40, 360, 80)
-            painter.setPen(QPen(QColor(255, 255, 255, 200), 2))
-            painter.setBrush(QColor(255, 255, 255, 40))
-            painter.drawRoundedRect(hint_rect, 10, 10)
-            painter.setPen(QPen(QColor(255, 255, 255), 2))
-            font = painter.font()
-            font.setPointSize(14)
-            font.setBold(True)
-            painter.setFont(font)
-            painter.drawText(hint_rect, Qt.AlignmentFlag.AlignCenter, "✂️ 拖动鼠标选择截图区域\n按 ESC 取消")
-        else:
+        # 如果有选区，绘制红色选框
+        if not self.origin.isNull() and not self.end.isNull():
             rect = QRect(self.origin, self.end).normalized()
-            # 挖空选区
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-            painter.fillRect(rect, QColor(0, 0, 0, 0))
-            # 红色边框
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             painter.setPen(QPen(Qt.GlobalColor.red, 2))
             painter.drawRect(rect)
+        else:
+            # 未开始选区时，显示提示文字（可选）
+            painter.setPen(QColor(255, 255, 255, 200))
+            font = painter.font()
+            font.setPointSize(14)
+            painter.setFont(font)
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "拖动鼠标选择截图区域，双击截图全图")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -107,18 +77,21 @@ class ScreenshotTool(QWidget):
         else:
             super().keyPressEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 双击直接截取全屏
+            full_rect = QRect(0, 0, self.width(), self.height())
+            self.capture(full_rect)
+
     def capture(self, rect):
-        # 1. 隐藏窗口，避免截图中包含红色边框和遮罩
-        self.hide()
-        # 2. 让 Qt 处理完隐藏事件，确保屏幕刷新
-        QApplication.processEvents()
-        
-        # 3. 短暂延时（50ms），进一步保证窗口完全消失（可选）
-        def do_capture():
-            bbox = (rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height())
-            img = ImageGrab.grab(bbox)
-            self.float_window = FloatImage(img)
-            self.float_window.show()
+        try:
+            if self.full_pil_image:
+                # 直接从已有的全屏截图中裁剪
+                cropped = self.full_pil_image.crop((rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height()))
+                print(f"裁剪后尺寸: {cropped.size}")
+                self.float_window = FloatImage(cropped)
+                self.float_window.show()
+        except Exception as e:
+            print(f"[截图异常] {e}")
+        finally:
             self.close()
-        
-        QTimer.singleShot(50, do_capture)
